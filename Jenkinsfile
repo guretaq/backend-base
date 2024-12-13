@@ -1,16 +1,19 @@
 pipeline {
     agent any
     environment {
-        registry = "https://us-central1-docker.pkg.dev"
-        registryCredential = 'gcp-registry'
-        dockerImage = 'us-central1-docker.pkg.dev/expertis-classroom/docker-repository/backend-base'
-        NPM_CONFIG_CACHE = "${WORKSPACE}/.npm"
+        // registry = "https://us-central1-docker.pkg.dev"
+        // registryCredential = 'gcp-registry'
+        // dockerImage = 'us-central1-docker.pkg.dev/expertis-classroom/docker-repository/backend-base'
+        dockerImage = 'localhost:8080'
+        // NPM_CONFIG_CACHE = "${WORKSPACE}/.npm"
+        USERNAME = "gerardo"
     }
     stages{
-        stage("pipeline de construcion en node"){
+        stage("build"){
             agent {
                 docker {
-                    image 'node:alpine3.20'
+                    label 'contenedores'
+                    image 'node:22-alpine'
                     reuseNode true
                 }
             }
@@ -32,32 +35,79 @@ pipeline {
                 }
             }
         }
-        stage("pipeline de construcion en docker"){
-           steps{
-               script{
-                   docker.withRegistry( "${registry}", registryCredential ){
-                        sh "docker build -t ${dockerImage}:latest ."
-                        sh "docker tag ${dockerImage}:latest ${dockerImage}:cmd-${BUILD_NUMBER}"
-                        sh "docker push ${dockerImage}:latest"
-                        sh "docker push ${dockerImage}:cmd-${BUILD_NUMBER}"
-                   }
-               }
-           }
-        }
-        stage("pipeline de despliegue en kubernetes"){
+//        stage("pipeline de construcion en docker"){
+//           steps{
+//               script{
+//                   docker.withRegistry( "${registry}", registryCredential ){
+//                        sh "docker build -t ${dockerImage}:latest ."
+//                        sh "docker tag ${dockerImage}:latest ${dockerImage}:cmd-${BUILD_NUMBER}"
+//                        sh "docker push ${dockerImage}:latest"
+//                        sh "docker push ${dockerImage}:cmd-${BUILD_NUMBER}"
+//                   }
+//               }
+//           }
+//        }
+           stage("Quality assurance"){
             agent {
                 docker {
-                    image 'alpine/k8s:1.30.2'
+                    label 'contenedores'
+                    image 'sonarsource/sonar-scanner-cli'
+                    args '--network=devops-infra_default'
                     reuseNode true
                 }
             }
-            steps{
-                withKubeConfig([credentialsId: 'gcp-kubeconfig', serverUrl: env.k8Server]) {
-                    script{
-                        sh "kubectl -n devops set image deployment/backend-base-deployment backend-base=${dockerImage}:cmd-${BUILD_NUMBER}"
+            stages{
+                stage("Quality assurance - sonarqube"){
+                    steps{
+                        withSonarQubeEnv('sonarqube') {
+                            sh 'sonar-scanner'
+                        }
+                    }
+                }
+                stage("Quality assurance - quality gate"){
+                    steps{
+                        script{
+                            timeout(time: 1, unit: 'MINUTES') {
+                                def qg = waitForQualityGate()
+                                if (qg.status != 'OK') {
+                                    error "Pipeline aborted due to quality gate failure: ${qg.status}"
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
+        stage("delivery - subida a nexus"){
+            steps{
+              script {
+                docker.withRegistry("http://localhost:8082", "registry"){
+                    sh 'docker build -t backend-base .'
+                    sh 'docker tag backend-devops:latest localhost:8082/backend-base:latest'
+                    sh 'docker push localhost:8082/backend-base:latest'
+                }
+              }
+
+            }
+        }
     }
 }
+
+        
+//        stage("pipeline de despliegue en kubernetes"){
+//            agent {
+//                docker {
+//                    image 'alpine/k8s:1.30.2'
+//                    reuseNode true
+//                }
+//            }
+//            steps{
+//                withKubeConfig([credentialsId: 'gcp-kubeconfig', serverUrl: env.k8Server]) {
+//                    script{
+//                        sh "kubectl -n devops set image deployment/backend-base-deployment backend-base=${dockerImage}:cmd-${BUILD_NUMBER}"
+//                    }
+//                }
+//            }
+//        }
+//    }
+//}

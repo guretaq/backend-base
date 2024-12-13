@@ -1,12 +1,12 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-base-deployment
-  namespace: cmd
+  name: backend-base
+  namespace: base
   labels:
     app: backend-base
 spec:
-  replicas: 3
+  replicas: 6
   selector:
     matchLabels:
       app: backend-base
@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
       - name: backend-base
-        image: us-central1-docker.pkg.dev/expertis-classroom/docker-repository/backend-base:cmd
+        image: localhost:8082/backend-devops:latest   #us-central1-docker.pkg.dev/expertis-classroom/docker-repository/backend-base:cmd
         imagePullPolicy: Always
         env:
         - name: USERNAME
@@ -36,8 +36,8 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: backend-base-svc
-  namespace: cmd
+  name: backend-base
+  namespace: base
   labels:
     app: backend-base
 spec:
@@ -47,12 +47,13 @@ spec:
   - protocol: TCP
     port: 80
     targetPort: 3001
+  type: ClusterIP
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: ingress-backend-base
-  namespace: cmd
+  namespace: base
   annotations:
     cert-manager.io/cluster-issuer: letsencrypt-staging
     nginx.ingress.kubernetes.io/rewrite-target: /$2
@@ -60,16 +61,16 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - "cmd.devops.cl"
+    - "cmd.base.cl"
     secretName: backend-base-tls
   rules:
-  - host: cmd.devops.cl
+  - host: cmd.base.cl
     http:
       paths:
       - path: /
         pathType: ImplementationSpecific
         backend:
           service:
-            name: backend-base-svc
+            name: backend-base
             port:
               number: 80
